@@ -58,10 +58,7 @@ services:
     env_file: .env
     environment:
       - TELEGRAM_LOCAL=true
-    # Force DNS to public resolvers (resolved through the tunnel), since docker's
-    # embedded DNS is not reliable inside the shared tun2socks namespace.
     volumes:
-      - ./telegram-bot-api/resolv.conf:/etc/resolv.conf:ro
       - tg_api_data:/var/lib/telegram-bot-api
     network_mode: "service:tun2socks"
     depends_on:

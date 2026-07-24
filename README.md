@@ -179,8 +179,6 @@ quality buttons), so a stranger can't trigger a download via a stale button.
 │   ├── config.py        # env parsing + proxy / local-API config
 │   ├── downloader.py    # yt-dlp wrapper (quality presets, proxy, mp3/mp4)
 │   └── bot.py           # Telebot handlers
-├── telegram-bot-api/
-│   └── resolv.conf      # DNS for the tunnelled bot-api container
 └── xray/
     ├── Dockerfile
     ├── config.json.template
