@@ -1,0 +1,39 @@
+services:
+  # ---------------------------------------------------------------------------
+  # xray: dials out via VLESS+REALITY and exposes a local SOCKS5 proxy (:10808)
+  # on the internal docker network. The bot uses it for all media downloads.
+  # ---------------------------------------------------------------------------
+  xray:
+    build: ./xray
+    container_name: dl_xray
+    restart: unless-stopped
+    env_file: .env
+    # Not published to the host — only reachable from the bot over the
+    # internal network. Uncomment to debug from the host:
+    # ports:
+    #   - "127.0.0.1:10808:10808"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 10808 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dlnet
+
+  # ---------------------------------------------------------------------------
+  # bot: the Telegram bot (pyTelegramBotAPI + yt-dlp + ffmpeg)
+  # ---------------------------------------------------------------------------
+  bot:
+    build: ./bot
+    container_name: dl_bot
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      xray:
+        condition: service_started
+    networks:
+      - dlnet
+
+networks:
+  dlnet:
+    driver: bridge

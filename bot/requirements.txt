@@ -1,0 +1,4 @@
+pyTelegramBotAPI==4.21.0
+yt-dlp>=2024.10.7
+requests[socks]==2.32.3
+PySocks==1.7.1
