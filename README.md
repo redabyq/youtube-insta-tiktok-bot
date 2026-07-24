@@ -180,7 +180,6 @@ quality buttons), so a stranger can't trigger a download via a stale button.
 │   ├── downloader.py    # yt-dlp wrapper (quality presets, proxy, mp3/mp4)
 │   └── bot.py           # Telebot handlers
 └── xray/
-    ├── Dockerfile
-    ├── config.json.template
-    └── entrypoint.sh    # renders config from env, starts xray
+    ├── Dockerfile       # FROM teddysun/xray (no build-time download)
+    └── entrypoint.sh    # renders config.json from env, starts xray
 ```
