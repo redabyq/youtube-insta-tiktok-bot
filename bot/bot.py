@@ -26,12 +26,22 @@ log = logging.getLogger("bot")
 if not config.BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set. Copy .env.example to .env and fill it in.")
 
-# Route Telegram API traffic through the proxy if requested.
-if config.PROXY_ENABLED and config.TELEGRAM_USE_PROXY and config.PROXY_URL:
+if config.USE_LOCAL_BOT_API:
+    # Talk to the self-hosted telegram-bot-api server instead of api.telegram.org.
+    # That server reaches Telegram through xray (via tun2socks), so the bot does
+    # NOT need its own proxy for Telegram here.
+    apihelper.API_URL = config.LOCAL_BOT_API_URL + "/bot{0}/{1}"
+    apihelper.FILE_URL = config.LOCAL_BOT_API_URL
+    log.info("Using local Bot API server at %s", config.LOCAL_BOT_API_URL)
+elif config.PROXY_ENABLED and config.TELEGRAM_USE_PROXY and config.PROXY_URL:
+    # Talking to api.telegram.org directly -> route it through the SOCKS proxy.
     apihelper.proxy = {"https": config.PROXY_URL}
     log.info("Telegram API traffic routed through proxy %s", config.PROXY_URL)
 
 bot = telebot.TeleBot(config.BOT_TOKEN, parse_mode="HTML")
+
+# Seconds to allow for uploading a media file to Telegram.
+UPLOAD_TIMEOUT = 900
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
@@ -198,11 +208,14 @@ def _do_download(chat_id: int, status_id: int, url: str, quality_key: str):
             "📤 Uploading…", chat_id=chat_id, message_id=status_id
         )
 
+        # Large files (up to 2 GB via the local server) need a generous timeout.
         with open(path, "rb") as fh:
             if is_audio:
-                bot.send_audio(chat_id, fh)
+                bot.send_audio(chat_id, fh, timeout=UPLOAD_TIMEOUT)
             else:
-                bot.send_video(chat_id, fh, supports_streaming=True)
+                bot.send_video(
+                    chat_id, fh, supports_streaming=True, timeout=UPLOAD_TIMEOUT
+                )
 
         bot.delete_message(chat_id, status_id)
 

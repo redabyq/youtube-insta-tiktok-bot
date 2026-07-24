@@ -15,17 +15,36 @@ and [yt-dlp](https://github.com/yt-dlp/yt-dlp). Ships as a `docker compose` stac
 
 ## Architecture
 
+Four containers on an internal docker network:
+
 ```
-Telegram ──▶ [ bot ] ──(SOCKS5 socks5h://xray:10808)──▶ [ xray ] ──VLESS+REALITY──▶ Internet
-                │                                                                    (YouTube,
-             yt-dlp + ffmpeg                                                          TikTok, IG)
+                 ┌──────────────────────────── downloads (yt-dlp) ───────────────────────────┐
+                 │                                                                            ▼
+  user ◀─▶ [ bot ] ──── Bot API calls ───▶ [ telegram-bot-api ]                          [ xray ]
+                                            (shares netns of)  ╲                     VLESS+REALITY
+                                                                ╲                            │
+                                                             [ tun2socks ] ─ SOCKS5 ─────────┘
+                                                                                             │
+                                                                                             ▼
+                                                                             Telegram DCs / YouTube / TikTok / IG
 ```
 
-- **xray** container: reads `VLESS_*` vars from `.env`, renders its config from a
-  template, dials the server via VLESS+REALITY, and exposes a SOCKS5 proxy on
-  `10808` (and an HTTP proxy on `10809`) on the internal docker network only.
-- **bot** container: `yt-dlp` points at `socks5h://xray:10808`. `socks5h` makes
-  DNS resolve on the proxy side too.
+- **xray** — dials the server via VLESS+REALITY, exposes a SOCKS5 proxy on
+  `10808` (HTTP on `10809`) on the internal network only.
+- **tun2socks** — creates a TUN device and forwards everything in its network
+  namespace to `socks5://xray:10808`.
+- **telegram-bot-api** — a self-hosted [Bot API server](https://github.com/tdlib/telegram-bot-api)
+  in *local* mode (uploads up to ~2000 MB). It runs with
+  `network_mode: service:tun2socks`, so **all its traffic to Telegram is
+  tunnelled through VLESS+REALITY**. This is required because the Bot API server
+  has no proxy option for its own connection to Telegram — only network-level
+  tunnelling works.
+- **bot** — pyTelegramBotAPI + yt-dlp + ffmpeg. Talks to the local Bot API
+  server at `http://tun2socks:8081`, and downloads media via `socks5h://xray:10808`.
+
+> Why the local server? Your host reported `api.telegram.org … Network is
+> unreachable`. Routing Telegram through the tunnel (and getting 2 GB uploads)
+> is exactly what the local server + tun2socks solves.
 
 ---
 
@@ -39,23 +58,50 @@ Telegram ──▶ [ bot ] ──(SOCKS5 socks5h://xray:10808)──▶ [ xray ]
    ```
    Edit `.env`:
    - `BOT_TOKEN` — your token from BotFather.
+   - `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` — **required by the local Bot API
+     server**. Get them at [my.telegram.org](https://my.telegram.org) → *API
+     development tools*. (These are not the bot token.)
    - `VLESS_*` — your VLESS+REALITY server credentials (address, port, UUID,
      SNI, public key / `pbk`, short id, flow, fingerprint).
    - `ALLOWED_USER_IDS` — **required for access**. The bot is deny-by-default:
      only the numeric ids you list here can use it (see "Access control" below).
 
-3. **Run:**
+3. **If the bot was ever used against the cloud API**, log it out once so it can
+   move to the local server (skip for a brand-new bot):
+   ```bash
+   curl "https://api.telegram.org/bot<YOUR_TOKEN>/logOut"
+   ```
+   Run this from any machine that *can* reach Telegram. After a successful
+   `logOut`, the bot may only be used on your local server for ~10 minutes'
+   cooldown, then start the stack.
+
+5. **Run:**
    ```bash
    docker compose up -d --build
    ```
 
-4. **Logs:**
+6. **Logs:**
    ```bash
    docker compose logs -f bot
+   docker compose logs -f telegram-bot-api
+   docker compose logs -f tun2socks
    docker compose logs -f xray
    ```
 
 ---
+
+## Local vs. cloud Bot API
+
+Controlled by `USE_LOCAL_BOT_API` in `.env`:
+
+- **`true` (default)** — bot uses the self-hosted `telegram-bot-api` server via
+  tun2socks. Needed when `api.telegram.org` is unreachable from your host, and
+  raises the upload limit to **2000 MB**. Requires `TELEGRAM_API_ID` /
+  `TELEGRAM_API_HASH`.
+- **`false`** — bot talks to `api.telegram.org` directly. Set
+  `TELEGRAM_USE_PROXY=true` to route those calls through the SOCKS proxy if
+  Telegram is blocked. Upload limit is **50 MB**. (The `tun2socks` and
+  `telegram-bot-api` containers can then be removed/stopped.)
 
 ## Disabling the proxy
 
@@ -65,12 +111,9 @@ Set in `.env`:
 PROXY_ENABLED=false
 ```
 
-The bot then connects directly (no proxy for yt-dlp). You can also stop the
-xray container: `docker compose stop xray` — the bot no longer depends on it
-at runtime once the proxy is off.
-
-Extra toggle: `TELEGRAM_USE_PROXY=true` also routes the Telegram Bot API traffic
-through the proxy (only needed if Telegram itself is blocked for you).
+The bot then connects directly (no proxy for yt-dlp). Note: with
+`USE_LOCAL_BOT_API=true`, tun2socks still depends on xray for the Telegram
+tunnel, so only disable the proxy if you also switch to the cloud API.
 
 ---
 
@@ -108,10 +151,12 @@ quality buttons), so a stranger can't trigger a download via a stale button.
 
 ## Notes & limits
 
-- **File size:** the plain Telegram Bot API caps uploads at **50 MB**
-  (`MAX_FILE_SIZE_MB`). For larger files, run a
-  [local Bot API server](https://github.com/tdlib/telegram-bot-api) (up to 2 GB)
-  and raise the limit. The bot warns and refuses to send oversized files.
+- **File size:** with the bundled local Bot API server, uploads go up to
+  **~2000 MB** (`MAX_FILE_SIZE_MB`). On the cloud API the hard limit is 50 MB.
+  The bot warns and refuses to send oversized files rather than crashing.
+- **tun2socks** needs the `NET_ADMIN` capability and `/dev/net/tun`. Most hosts
+  (incl. Coolify) allow this; if `/dev/net/tun` is missing, load the module on
+  the host with `sudo modprobe tun`.
 - Only single videos are downloaded (`noplaylist`).
 - Instagram may require login for some content; public Reels generally work.
   To use cookies, mount a `cookies.txt` into the bot container and add
@@ -131,9 +176,11 @@ quality buttons), so a stranger can't trigger a download via a stale button.
 ├── bot/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   ├── config.py        # env parsing + proxy URL
+│   ├── config.py        # env parsing + proxy / local-API config
 │   ├── downloader.py    # yt-dlp wrapper (quality presets, proxy, mp3/mp4)
 │   └── bot.py           # Telebot handlers
+├── telegram-bot-api/
+│   └── resolv.conf      # DNS for the tunnelled bot-api container
 └── xray/
     ├── Dockerfile
     ├── config.json.template
