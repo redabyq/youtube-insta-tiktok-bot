@@ -35,8 +35,16 @@ def _base_opts(tmpdir: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
-        "retries": 3,
+        "retries": 5,
+        "fragment_retries": 10,
         "socket_timeout": 30,
+        # Speed: download DASH/HLS fragments in parallel instead of one-by-one.
+        # This is the biggest win over a high-latency proxy (esp. YouTube).
+        "concurrent_fragment_downloads": config.CONCURRENT_FRAGMENTS,
+        # Larger read buffer; helps sustain throughput through the tunnel.
+        "buffersize": 1024 * 1024,
+        # Cap per-request chunk so a single throttled connection can't stall.
+        "http_chunk_size": 10 * 1024 * 1024,
     }
     if config.PROXY_URL:
         opts["proxy"] = config.PROXY_URL

@@ -18,6 +18,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 MAX_FILE_SIZE_MB = _get_int("MAX_FILE_SIZE_MB", 50)
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
+# Number of DASH/HLS fragments yt-dlp downloads in parallel. Higher = faster
+# over a high-latency proxy, at the cost of more connections. 4-8 is a good range.
+CONCURRENT_FRAGMENTS = _get_int("CONCURRENT_FRAGMENTS", 5)
+
 # Allow-list of Telegram user ids.
 #   ALLOW_ALL_USERS=false (default) => ONLY ids in ALLOWED_USER_IDS may use the bot.
 #                                      An empty list therefore means "nobody".

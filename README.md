@@ -117,6 +117,30 @@ tunnel, so only disable the proxy if you also switch to the cloud API.
 
 ---
 
+## Speed / performance
+
+Everything goes through the VLESS tunnel, so throughput is capped by your
+server. Levers, in order of impact:
+
+1. **`CONCURRENT_FRAGMENTS`** (`.env`) — parallel fragment downloads in yt-dlp.
+   The biggest win for YouTube. Default 8; try 12–16 on a fast link.
+2. **VLESS server location & bandwidth** — the dominant factor. A closer,
+   less-loaded server is faster. All creds live in `.env`
+   (`VLESS_ADDRESS`, `VLESS_PORT`, `VLESS_UUID`, `VLESS_SNI`,
+   `VLESS_PUBLIC_KEY`, `VLESS_SHORT_ID`) — swap them and `docker compose up -d`
+   to point at a different/faster server. No rebuild needed for xray.
+3. **`VLESS_FLOW=xtls-rprx-vision`** (default) — keep this. XTLS-Vision avoids
+   double TLS encryption and is markedly faster than an empty flow.
+4. **tun2socks `TCP_SNDBUF` / `TCP_RCVBUF`** (compose, default `4m`) — larger
+   buffers fill a high-latency link's bandwidth-delay product; raise to `8m`
+   if uploads to Telegram are the bottleneck.
+5. **Pick a lower quality** — 720p downloads/sends far faster than 1080p/Best.
+
+The download (yt-dlp → xray) and the Telegram upload (tun2socks → xray) are
+independent paths — if only one feels slow, tune the matching lever above.
+
+---
+
 ## Access control (only your users)
 
 The bot is **deny-by-default**:

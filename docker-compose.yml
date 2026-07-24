@@ -30,6 +30,11 @@ services:
     environment:
       - LOGLEVEL=info
       - PROXY=socks5://xray:10808
+      # Throughput tuning: bigger TCP buffers fill the bandwidth-delay product
+      # of the tunnel, which is what makes large uploads to Telegram fast.
+      - TCP_SNDBUF=4m
+      - TCP_RCVBUF=4m
+      - UDP_TIMEOUT=60s
     cap_add:
       - NET_ADMIN
     devices:
