@@ -6,9 +6,11 @@ unless disabled via the PROXY_ENABLED env flag.
 import os
 import re
 import time
+import socket
 import shutil
 import logging
 import threading
+from urllib.parse import urlparse
 
 import requests
 import telebot
@@ -245,39 +247,60 @@ def _short(text: str, limit: int = 300) -> str:
 
 
 def wait_for_local_api(max_wait: int = 180) -> None:
-    """Block until the local Bot API server is accepting connections.
+    """Block until the local Bot API server's TCP port is open.
 
-    The telegram-bot-api server (TDLib) takes a few seconds to start listening,
-    and depends_on only waits for the container to be *created*. Without this,
-    the first getMe races the server and the bot crashes with 'Connection
-    refused'. If the server never comes up, exit with a clear diagnostic.
+    We only check that the server is *listening* (a plain TCP connect), NOT that
+    getMe succeeds — getMe requires a round-trip to Telegram through the tunnel,
+    so using it here would conflate "server down" with "tunnel down". Once the
+    port is open, infinity_polling handles Telegram-side retries itself.
     """
     if not config.USE_LOCAL_BOT_API:
         return
 
-    url = f"{config.LOCAL_BOT_API_URL}/bot{config.BOT_TOKEN}/getMe"
+    parsed = urlparse(config.LOCAL_BOT_API_URL)
+    host, port = parsed.hostname, parsed.port or 80
     deadline = time.time() + max_wait
     attempt = 0
     while True:
         attempt += 1
         try:
-            # Any HTTP response means the server is up and listening.
-            requests.get(url, timeout=5)
-            log.info("Local Bot API server reachable at %s", config.LOCAL_BOT_API_URL)
-            return
-        except requests.RequestException as e:
+            with socket.create_connection((host, port), timeout=5):
+                log.info("Local Bot API server is listening on %s:%s", host, port)
+                return
+        except OSError as e:
             if time.time() > deadline:
                 raise SystemExit(
-                    "Local Bot API server never became reachable at "
-                    f"{config.LOCAL_BOT_API_URL} after {max_wait}s ({type(e).__name__}).\n"
+                    f"Local Bot API server not listening on {host}:{port} after "
+                    f"{max_wait}s ({e}).\n"
                     "Check it with:  docker compose logs telegram-bot-api\n"
-                    "Common causes: TELEGRAM_API_ID / TELEGRAM_API_HASH missing or "
-                    "wrong in .env, or the bot must be logged out of the cloud API "
-                    "first (curl https://api.telegram.org/bot<TOKEN>/logOut)."
+                    "Common causes: TELEGRAM_API_ID / TELEGRAM_API_HASH missing/wrong."
                 )
             if attempt == 1 or attempt % 5 == 0:
-                log.info("Waiting for local Bot API server… (%s)", type(e).__name__)
+                log.info("Waiting for local Bot API server to listen…")
             time.sleep(3)
+
+
+def self_test_proxy() -> None:
+    """Best-effort check that the xray VLESS tunnel actually reaches the internet.
+
+    Fetches our external IP through socks5h://xray:10808. If this succeeds, xray
+    + VLESS work; if the bot then still can't reach Telegram, the fault is in
+    tun2socks (which telegram-bot-api relies on), not xray.
+    """
+    if not config.PROXY_URL:
+        log.info("Proxy disabled — skipping tunnel self-test.")
+        return
+    proxies = {"http": config.PROXY_URL, "https": config.PROXY_URL}
+    try:
+        r = requests.get("https://api.ipify.org", proxies=proxies, timeout=15)
+        log.info("✅ Tunnel OK — external IP via xray/VLESS: %s", r.text.strip())
+    except requests.RequestException as e:
+        log.error(
+            "❌ Tunnel self-test FAILED through %s (%s: %s). "
+            "xray/VLESS is likely misconfigured or the server is unreachable — "
+            "check `docker compose logs xray`.",
+            config.PROXY_URL, type(e).__name__, e,
+        )
 
 
 def main():
@@ -289,6 +312,7 @@ def main():
             "No ALLOWED_USER_IDS set and ALLOW_ALL_USERS=false — "
             "NOBODY can use the bot. Add your user id to ALLOWED_USER_IDS in .env."
         )
+    self_test_proxy()
     wait_for_local_api()
     log.info("Bot starting (polling)…")
     bot.infinity_polling(timeout=30, long_polling_timeout=30)
