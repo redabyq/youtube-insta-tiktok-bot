@@ -105,18 +105,18 @@ def on_start(message):
     if not _authorized(message.from_user.id):
         bot.reply_to(
             message,
-            f"⛔ You are not allowed to use this bot.\n"
-            f"Your user id is <code>{message.from_user.id}</code>.",
+            f"⛔ Вы не можете использовать этого бота.\n"
+            f"Ваш Telegram ID: <code>{message.from_user.id}</code>.",
         )
         return
     bot.reply_to(
         message,
-        "👋 <b>Video downloader bot</b>\n\n"
-        "Send me a link from <b>YouTube</b>, <b>TikTok</b> or "
-        "<b>Instagram Reels</b> and I'll offer you download options "
-        "(different qualities as MP4, or MP3 audio).\n\n"
+        "👋 <b>Бот для скачивания видео!</b>\n\n"
+        "Отправьте мне ссылку на видео из <b>YouTube</b>, <b>TikTok</b> или на"
+        "<b>Instagram Reels</b> и вам будут доступна функция скачивания в разном формате"
+        "(разные качества MP4, или MP3 аудио).\n\n"
         f"⚠️ Max file size: <b>{config.MAX_FILE_SIZE_MB} MB</b> "
-        "(Telegram limit for bots).",
+        "",
     )
 
 
@@ -129,30 +129,30 @@ def on_text(message):
         )
         bot.reply_to(
             message,
-            f"⛔ You are not allowed to use this bot.\n"
-            f"Your user id is <code>{message.from_user.id}</code> — "
-            "ask the owner to add it.",
+            f"⛔ Вы не можете использовать этого бота.\n"
+            f"Ваш Telegram ID: <code>{message.from_user.id}</code> — "
+            "",
         )
         return
 
     match = URL_RE.search(message.text or "")
     if not match:
-        bot.reply_to(message, "Please send me a video link. /help for details.")
+        bot.reply_to(message, "Отправьте мне ссылку на видео. /help для помощи.")
         return
 
     url = match.group(0)
     if not any(h in url.lower() for h in SUPPORTED_HINT):
         bot.reply_to(
             message,
-            "That doesn't look like a supported link.\n"
-            "Supported: YouTube, TikTok, Instagram Reels.",
+            "Работа с данным сервисом не поддерживается.\n"
+            "Поддерживаемые сервисы: YouTube, TikTok, Instagram Reels.",
         )
         return
 
     token = _put_url(url)
     bot.reply_to(
         message,
-        "Choose a format / quality:",
+        "Выберите формат / качество:",
         reply_markup=_quality_keyboard(token),
     )
 
@@ -171,13 +171,13 @@ def on_choice(call):
 
     url = _get_url(token)
     if not url:
-        bot.answer_callback_query(call.id, "This request expired. Send the link again.")
+        bot.answer_callback_query(call.id, "Запрос не обработан. Отправьте ссылку снова")
         return
 
     bot.answer_callback_query(call.id)
     label = downloader.QUALITY_PRESETS[quality_key][0]
     status = bot.edit_message_text(
-        f"⏳ Downloading <b>{label}</b>…",
+        f"⏳ Скачиваю <b>{label}</b>…",
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
     )
@@ -199,16 +199,16 @@ def _do_download(chat_id: int, status_id: int, url: str, quality_key: str):
 
         if size > config.MAX_FILE_SIZE_BYTES:
             bot.edit_message_text(
-                f"❌ File is {size / 1024 / 1024:.1f} MB, which exceeds the "
-                f"{config.MAX_FILE_SIZE_MB} MB limit.\n"
-                "Try a lower quality or MP3.",
+                f"❌ Размер файла {size / 1024 / 1024:.1f} MB, что превышает лимит в "
+                f"{config.MAX_FILE_SIZE_MB} MB.\n"
+                "Попробуйте качество поменьше или формат MP3.",
                 chat_id=chat_id,
                 message_id=status_id,
             )
             return
 
         bot.edit_message_text(
-            "📤 Uploading…", chat_id=chat_id, message_id=status_id
+            "📤 Отправляю…", chat_id=chat_id, message_id=status_id
         )
 
         # Large files (up to 2 GB via the local server) need a generous timeout.
@@ -225,14 +225,14 @@ def _do_download(chat_id: int, status_id: int, url: str, quality_key: str):
     except downloader.DownloadError as e:
         log.warning("Download failed: %s", e)
         bot.edit_message_text(
-            f"❌ Download failed:\n<code>{_short(str(e))}</code>",
+            f"❌ Загрузка не завершена:\n<code>{_short(str(e))}</code>",
             chat_id=chat_id,
             message_id=status_id,
         )
     except Exception as e:  # noqa: BLE001
         log.exception("Unexpected error")
         bot.edit_message_text(
-            f"❌ Unexpected error:\n<code>{_short(str(e))}</code>",
+            f"❌ Неожиданная ошибка:\n<code>{_short(str(e))}</code>",
             chat_id=chat_id,
             message_id=status_id,
         )
