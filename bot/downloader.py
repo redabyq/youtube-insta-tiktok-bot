@@ -18,12 +18,12 @@ class DownloadError(Exception):
 # Quality presets. Key -> (label, yt-dlp format string, is_audio)
 QUALITY_PRESETS = {
     "mp3": ("🎵 MP3 (audio)", "bestaudio/best", True),
-    "144": ("📹 144p", "bestvideo[height<=144]+bestaudio/best[height<=144]/best", False),
-    "360": ("📹 360p", "bestvideo[height<=360]+bestaudio/best[height<=360]/best", False),
-    "480": ("📹 480p", "bestvideo[height<=480]+bestaudio/best[height<=480]/best", False),
-    "720": ("📹 720p", "bestvideo[height<=720]+bestaudio/best[height<=720]/best", False),
-    "1080": ("📹 1080p", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best", False),
-    "best": ("📹 Best available", "bestvideo+bestaudio/best", False),
+    "144": ("📹 144p", "bestvideo[height<=144][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
+    "360": ("📹 360p", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
+    "480": ("📹 480p", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
+    "720": ("📹 720p", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
+    "1080": ("📹 1080p", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
+    "best": ("📹 Best available", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", False),
 }
 
 
