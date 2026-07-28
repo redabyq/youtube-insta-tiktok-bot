@@ -64,16 +64,20 @@ def probe(url: str) -> dict:
 
 
 def download(url: str, quality_key: str) -> str:
-    """Download the media and return the path to the resulting file."""
     if quality_key not in QUALITY_PRESETS:
         raise DownloadError(f"Unknown quality: {quality_key}")
 
     _label, fmt, is_audio = QUALITY_PRESETS[quality_key]
-
-    # Persistent dir so the caller can send the file after this returns.
+    
     tmpdir = tempfile.mkdtemp(prefix="dl_")
     opts = _base_opts(tmpdir)
-    opts["format"] = fmt
+    
+    # Исправление для TikTok
+    if "tiktok" in url.lower() and not is_audio:
+        opts["format"] = "bestvideo+bestaudio/best"
+        opts["merge_output_format"] = "mp4"
+    else:
+        opts["format"] = fmt
 
     if is_audio:
         opts["postprocessors"] = [
