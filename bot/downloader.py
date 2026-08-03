@@ -10,6 +10,14 @@ import config
 
 log = logging.getLogger("downloader")
 
+# Browser TLS-fingerprint impersonation (via curl_cffi) lets yt-dlp bypass
+# 403/bot-detection walls. Resolve a target once; None if unavailable.
+try:
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+    _IMPERSONATE = ImpersonateTarget("chrome")
+except Exception:  # noqa: BLE001
+    _IMPERSONATE = None
+
 
 class DownloadError(Exception):
     pass
@@ -83,6 +91,9 @@ def _base_opts(tmpdir: str) -> dict:
     }
     if config.PROXY_URL:
         opts["proxy"] = config.PROXY_URL
+    if _IMPERSONATE is not None:
+        # Impersonate a real browser's TLS fingerprint to get past 403 walls.
+        opts["impersonate"] = _IMPERSONATE
     return opts
 
 
