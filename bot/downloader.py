@@ -32,23 +32,29 @@ QUALITY_PRESETS = {
 def _build_format(height, url: str) -> str:
     """Build a yt-dlp format selector, guaranteeing the result has audio.
 
-    TikTok often exposes video-only streams and no separate audio track, so
-    ``bestvideo+bestaudio`` can select a mute stream with nothing to merge,
-    producing a silent file. For TikTok we therefore prefer a single
-    *progressive* stream that already contains both audio and video
-    (``[acodec!=none][vcodec!=none]``), and only fall back to merging.
+    TikTok quirk (verified with ffprobe): TikTok's HEVC/``bytevc1`` (vcodec
+    ``h265``) renditions are effectively *video-only* — they carry no audio
+    stream even though yt-dlp's format listing falsely reports ``acodec=aac``.
+    Since "best" would pick the higher-bitrate HEVC stream, the file comes out
+    silent. Only the ``h264`` renditions actually contain audio.
+
+    So for TikTok we explicitly prefer ``vcodec=h264`` and DO NOT apply a height
+    cap: TikTok clips are portrait (e.g. 576x1024), so a ``height<=720`` filter
+    would wrongly exclude the good H.264 stream. H.264 is also the most
+    Telegram-compatible codec. We can't rely on ``[acodec!=none]`` here because
+    yt-dlp mis-reports audio on the HEVC formats.
 
     For YouTube/others, merging separate best video+audio gives the best
     quality; the fallbacks still require audio so we never emit a silent file.
     """
-    hcap = f"[height<={height}]" if height else ""
     if "tiktok" in url.lower():
         return (
-            f"best{hcap}[vcodec!=none][acodec!=none]/"
-            f"best[vcodec!=none][acodec!=none]/"
-            f"bestvideo{hcap}+bestaudio/"
-            f"best{hcap}/best"
+            "best[vcodec=h264]/"
+            "best[vcodec^=avc]/"
+            "best[vcodec!=h265][vcodec!=hevc]/"
+            "best"
         )
+    hcap = f"[height<={height}]" if height else ""
     return (
         f"bestvideo{hcap}+bestaudio/"
         f"best{hcap}[acodec!=none]/"
@@ -102,7 +108,12 @@ def download(url: str, quality_key: str) -> str:
     opts = _base_opts(tmpdir)
 
     if is_audio:
-        opts["format"] = "bestaudio/best"
+        # On TikTok, bestaudio may resolve to a (mislabeled) silent HEVC stream,
+        # so pull audio from the h264 rendition that actually contains it.
+        if "tiktok" in url.lower():
+            opts["format"] = "best[vcodec=h264]/best[vcodec^=avc]/bestaudio/best"
+        else:
+            opts["format"] = "bestaudio/best"
     else:
         opts["format"] = _build_format(height, url)
 
