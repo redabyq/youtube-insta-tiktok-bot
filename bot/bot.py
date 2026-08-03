@@ -51,6 +51,7 @@ URL_RE = re.compile(r"https?://[^\s]+")
 SUPPORTED_HINT = (
     "youtube.com", "youtu.be", "tiktok.com", "instagram.com",
     "instagr.am", "vt.tiktok.com",
+    "pornhub.com", "pornhub.org",
 )
 
 # Short-lived store: token -> url  (callback_data is limited to 64 bytes).
