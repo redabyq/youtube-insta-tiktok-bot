@@ -28,6 +28,22 @@ _YT_PLAYER_CLIENTS = ["default", "tv", "web_safari", "mweb"]
 # Clients to try if the first attempt still 403s: HLS-serving clients only.
 _YT_PLAYER_CLIENTS_FALLBACK = ["tv", "web_safari", "ios"]
 
+# TikTok gates some posts ("This post may not be comfortable for some
+# audiences. Log in for access.") behind a login wall on its *web* API. The
+# mobile-app API serves the same posts without that interstitial, so when we hit
+# the wall we retry pointing yt-dlp's TikTok extractor at the app API. Values
+# mirror yt-dlp's own documented app-API preset; they drift over time, so this
+# is best-effort — a mounted COOKIES_FILE remains the guaranteed path.
+_TIKTOK_APP_ARGS = {
+    "tiktok": {
+        "api_hostname": ["api22-normal-c-useast2a.tiktokv.com"],
+        "app_name": ["trill"],
+        "app_version": ["34.1.2"],
+        "manifest_app_version": ["2023401020"],
+        "aid": ["1180"],
+    }
+}
+
 
 def _extractor_args(clients=None) -> dict:
     return {"youtube": {"player_client": clients or _YT_PLAYER_CLIENTS}}
@@ -38,9 +54,22 @@ def _is_youtube(url: str) -> bool:
     return "youtube.com" in u or "youtu.be" in u
 
 
+def _is_tiktok(url: str) -> bool:
+    return "tiktok" in url.lower()
+
+
 def _looks_forbidden(msg: str) -> bool:
     m = msg.lower()
     return "403" in m or "forbidden" in m
+
+
+def _looks_login_required(msg: str) -> bool:
+    m = msg.lower()
+    return (
+        "log in for access" in m
+        or "may not be comfortable" in m
+        or "use --cookies" in m
+    )
 
 
 class DownloadError(Exception):
@@ -143,6 +172,15 @@ def probe(url: str) -> dict:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(url, download=False)
         except Exception as e:  # noqa: BLE001
+            if _is_tiktok(url) and _looks_login_required(str(e)):
+                opts["extractor_args"] = {
+                    **opts.get("extractor_args", {}), **_TIKTOK_APP_ARGS
+                }
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        return ydl.extract_info(url, download=False)
+                except Exception as e2:  # noqa: BLE001
+                    raise DownloadError(str(e2)) from e2
             raise DownloadError(str(e)) from e
 
 
@@ -197,18 +235,24 @@ def download(url: str, quality_key: str) -> str:
         if _is_youtube(url) and _looks_forbidden(str(e)):
             log.warning("YouTube 403 — retrying with HLS-only player clients")
             opts["extractor_args"] = _extractor_args(_YT_PLAYER_CLIENTS_FALLBACK)
-            # Clear any partial fragments from the first attempt.
-            for f in glob.glob(os.path.join(tmpdir, "*")):
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
-            try:
-                _run_download(opts, url)
-            except Exception as e2:  # noqa: BLE001
-                raise DownloadError(str(e2)) from e2
+        # TikTok's web API hides sensitive/age-gated posts behind a login wall.
+        # Retry once via the mobile-app API, which usually serves them.
+        elif _is_tiktok(url) and _looks_login_required(str(e)):
+            log.warning("TikTok login wall — retrying via mobile-app API")
+            opts["extractor_args"] = {**opts.get("extractor_args", {}), **_TIKTOK_APP_ARGS}
         else:
             raise DownloadError(str(e)) from e
+
+        # Clear any partial fragments from the first attempt.
+        for f in glob.glob(os.path.join(tmpdir, "*")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        try:
+            _run_download(opts, url)
+        except Exception as e2:  # noqa: BLE001
+            raise DownloadError(str(e2)) from e2
 
     files = [f for f in glob.glob(os.path.join(tmpdir, "*")) if os.path.isfile(f)]
     if not files:
