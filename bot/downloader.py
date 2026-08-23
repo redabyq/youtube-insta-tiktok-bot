@@ -96,8 +96,14 @@ def _build_format(height, url: str) -> str:
 
 def _base_opts(tmpdir: str) -> dict:
     opts = {
-        "outtmpl": os.path.join(tmpdir, "%(title).80s.%(ext)s"),
-        "restrictfilenames": True,
+        # Keep the real title in the filename. We deliberately DON'T set
+        # restrictfilenames: it strips everything to ASCII, so a fully Cyrillic
+        # (or other non-Latin) title collapses to a single "_", giving "_.mp3"/
+        # "_.mp4". The "%(title,id)s" alternate falls back to the video id only
+        # if the title is genuinely empty. Output lives in a private tmpdir on
+        # Linux, so Unicode filenames are fine.
+        "outtmpl": os.path.join(tmpdir, "%(title,id).80s.%(ext)s"),
+        "restrictfilenames": False,
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
