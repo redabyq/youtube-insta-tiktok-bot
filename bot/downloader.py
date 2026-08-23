@@ -18,6 +18,30 @@ try:
 except Exception:  # noqa: BLE001
     _IMPERSONATE = None
 
+# YouTube regularly 403s the media URLs served to the default "web" client
+# (expired nsig / throttling / PO-token walls), which surfaces as
+# "unable to download video data: HTTP Error 403: Forbidden" during the
+# fragment/data download step. Pulling formats from additional player clients —
+# notably the TV and Safari clients, which hand out HLS manifests that dodge the
+# 403 wall — gives the format selector a working stream to fall back to.
+_YT_PLAYER_CLIENTS = ["default", "tv", "web_safari", "mweb"]
+# Clients to try if the first attempt still 403s: HLS-serving clients only.
+_YT_PLAYER_CLIENTS_FALLBACK = ["tv", "web_safari", "ios"]
+
+
+def _extractor_args(clients=None) -> dict:
+    return {"youtube": {"player_client": clients or _YT_PLAYER_CLIENTS}}
+
+
+def _is_youtube(url: str) -> bool:
+    u = url.lower()
+    return "youtube.com" in u or "youtu.be" in u
+
+
+def _looks_forbidden(msg: str) -> bool:
+    m = msg.lower()
+    return "403" in m or "forbidden" in m
+
 
 class DownloadError(Exception):
     pass
@@ -94,6 +118,13 @@ def _base_opts(tmpdir: str) -> dict:
     if _IMPERSONATE is not None:
         # Impersonate a real browser's TLS fingerprint to get past 403 walls.
         opts["impersonate"] = _IMPERSONATE
+    # Harmless for non-YouTube URLs (yt-dlp ignores extractor args it doesn't
+    # apply); essential for getting past YouTube's 403 media walls.
+    opts["extractor_args"] = _extractor_args()
+    # Optional cookies file (e.g. exported YouTube/Instagram cookies) lets the
+    # bot reach age-gated / login-walled videos. Mount it and set COOKIES_FILE.
+    if getattr(config, "COOKIES_FILE", ""):
+        opts["cookiefile"] = config.COOKIES_FILE
     return opts
 
 
@@ -107,6 +138,11 @@ def probe(url: str) -> dict:
                 return ydl.extract_info(url, download=False)
         except Exception as e:  # noqa: BLE001
             raise DownloadError(str(e)) from e
+
+
+def _run_download(opts: dict, url: str) -> None:
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.extract_info(url, download=True)
 
 
 def download(url: str, quality_key: str) -> str:
@@ -147,10 +183,26 @@ def download(url: str, quality_key: str) -> str:
         ]
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.extract_info(url, download=True)
+        _run_download(opts, url)
     except Exception as e:  # noqa: BLE001
-        raise DownloadError(str(e)) from e
+        # YouTube's default client sometimes 403s the media URLs. Retry once
+        # forcing the HLS-serving clients, which usually hand out a stream that
+        # downloads cleanly.
+        if _is_youtube(url) and _looks_forbidden(str(e)):
+            log.warning("YouTube 403 — retrying with HLS-only player clients")
+            opts["extractor_args"] = _extractor_args(_YT_PLAYER_CLIENTS_FALLBACK)
+            # Clear any partial fragments from the first attempt.
+            for f in glob.glob(os.path.join(tmpdir, "*")):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+            try:
+                _run_download(opts, url)
+            except Exception as e2:  # noqa: BLE001
+                raise DownloadError(str(e2)) from e2
+        else:
+            raise DownloadError(str(e)) from e
 
     files = [f for f in glob.glob(os.path.join(tmpdir, "*")) if os.path.isfile(f)]
     if not files:

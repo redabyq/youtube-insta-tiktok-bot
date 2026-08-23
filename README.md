@@ -182,9 +182,22 @@ quality buttons), so a stranger can't trigger a download via a stale button.
   (incl. Coolify) allow this; if `/dev/net/tun` is missing, load the module on
   the host with `sudo modprobe tun`.
 - Only single videos are downloaded (`noplaylist`).
+- **Keep yt-dlp fresh.** YouTube/TikTok change their internals constantly, and a
+  stale yt-dlp is the top cause of `HTTP Error 403: Forbidden` (YouTube) and
+  `Unexpected response from webpage request` (TikTok). yt-dlp is left unpinned
+  and the Dockerfile force-upgrades it to the newest release on each build, so if
+  downloads start failing, just rebuild to pull the latest fix:
+  ```bash
+  docker compose build --no-cache bot && docker compose up -d bot
+  ```
+  (or bump `YTDLP_REFRESH` in `bot/Dockerfile` to bust the cache).
+- YouTube 403s are also mitigated in code by pulling formats from multiple
+  player clients (TV / Safari / mobile-web) and retrying with the HLS-serving
+  clients on a 403 — see `bot/downloader.py`.
 - Instagram may require login for some content; public Reels generally work.
-  To use cookies, mount a `cookies.txt` into the bot container and add
-  `"cookiefile"` to the yt-dlp options in `bot/downloader.py`.
+  To use cookies, export a `cookies.txt` (Netscape format) from a logged-in
+  browser, mount it into the bot container, and set `COOKIES_FILE=/app/cookies.txt`
+  in `.env`. This also helps with age-gated videos and stubborn YouTube checks.
 - Respect each platform's Terms of Service and copyright. Download only content
   you have the right to.
 

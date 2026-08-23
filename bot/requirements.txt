@@ -2,6 +2,11 @@ pyTelegramBotAPI==4.21.0
 # [default] pulls brotli/websockets/mutagen etc.; [curl-cffi] adds browser
 # TLS-fingerprint impersonation (a yt-dlp-compatible curl_cffi version) needed
 # to bypass 403/bot-detection on some sites.
-yt-dlp[default,curl-cffi]>=2024.10.7
+#
+# NOTE: yt-dlp is intentionally left UNPINNED. YouTube/TikTok change their
+# internals constantly, and a stale yt-dlp is the #1 cause of "HTTP Error 403"
+# (YouTube) and "Unexpected response from webpage request" (TikTok). The
+# Dockerfile force-upgrades this to the newest release on each build.
+yt-dlp[default,curl-cffi]
 requests[socks]==2.32.3
 PySocks==1.7.1

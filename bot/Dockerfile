@@ -10,6 +10,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Force the newest yt-dlp on every build. Sites (YouTube/TikTok) break stale
+# versions constantly, causing 403s and "Unexpected response" errors. Bump
+# YTDLP_REFRESH (or build with --no-cache) to bust the layer cache and refetch.
+ARG YTDLP_REFRESH=2026-08-23
+RUN pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]"
+
 COPY . .
 
 # Run as a non-root user

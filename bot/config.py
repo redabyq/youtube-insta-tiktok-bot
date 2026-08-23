@@ -22,6 +22,12 @@ MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 # over a high-latency proxy, at the cost of more connections. 4-8 is a good range.
 CONCURRENT_FRAGMENTS = _get_int("CONCURRENT_FRAGMENTS", 5)
 
+# Optional path to a Netscape-format cookies.txt (exported from a logged-in
+# browser). Lets yt-dlp reach age-gated / login-walled videos and further helps
+# dodge YouTube bot checks. Empty = no cookies. Mount the file into the bot
+# container and point this at it, e.g. COOKIES_FILE=/app/cookies.txt.
+COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
+
 # Allow-list of Telegram user ids.
 #   ALLOW_ALL_USERS=false (default) => ONLY ids in ALLOWED_USER_IDS may use the bot.
 #                                      An empty list therefore means "nobody".
