@@ -10,6 +10,8 @@ import socket
 import shutil
 import logging
 import threading
+from contextlib import ExitStack
+from html import escape
 from urllib.parse import urlparse
 
 import requests
@@ -213,9 +215,13 @@ def _do_download(chat_id: int, status_id: int, url: str, quality_key: str):
         )
 
         # Large files (up to 2 GB via the local server) need a generous timeout.
-        with open(path, "rb") as fh:
+        with ExitStack() as stack:
+            fh = stack.enter_context(open(path, "rb"))
             if is_audio:
-                bot.send_audio(chat_id, fh, timeout=UPLOAD_TIMEOUT)
+                cover = os.path.join(os.path.dirname(path), "cover.jpg")
+                thumb = (stack.enter_context(open(cover, "rb"))
+                         if os.path.isfile(cover) and os.path.getsize(cover) < 200 * 1024 else None)
+                bot.send_audio(chat_id, fh, thumbnail=thumb, timeout=UPLOAD_TIMEOUT)
             else:
                 bot.send_video(
                     chat_id, fh, supports_streaming=True, timeout=UPLOAD_TIMEOUT
@@ -243,8 +249,7 @@ def _do_download(chat_id: int, status_id: int, url: str, quality_key: str):
 
 
 def _short(text: str, limit: int = 300) -> str:
-    text = text.replace("<", "&lt;").replace(">", "&gt;")
-    return text if len(text) <= limit else text[:limit] + "…"
+    return escape(text if len(text) <= limit else text[:limit] + "…")
 
 
 def wait_for_local_api(max_wait: int = 180) -> None:

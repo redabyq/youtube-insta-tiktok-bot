@@ -1,4 +1,6 @@
+FROM denoland/deno:bin-2.5.2 AS deno
 FROM python:3.12-slim
+COPY --from=deno /deno /usr/local/bin/deno
 
 # ffmpeg is required by yt-dlp for merging video+audio and MP3 extraction.
 RUN apt-get update \

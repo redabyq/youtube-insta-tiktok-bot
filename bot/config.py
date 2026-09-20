@@ -44,10 +44,12 @@ ALLOWED_USER_IDS = {
 # tunnelled to Telegram through xray via tun2socks, and it raises the upload
 # limit from 50 MB to ~2000 MB.
 USE_LOCAL_BOT_API = _get_bool("USE_LOCAL_BOT_API", True)
-LOCAL_BOT_API_URL = os.getenv("LOCAL_BOT_API_URL", "http://tun2socks:8081").strip().rstrip("/")
+LOCAL_BOT_API_URL = os.getenv("LOCAL_BOT_API_URL", "http://telegram-bot-api:8081").strip().rstrip("/")
 
 # --- Proxy (VLESS + REALITY via xray sidecar) ---------------------------------
 PROXY_ENABLED = _get_bool("PROXY_ENABLED", True)
+if not PROXY_ENABLED and LOCAL_BOT_API_URL == "http://tun2socks:8081":
+    LOCAL_BOT_API_URL = "http://telegram-bot-api:8081"
 # Only relevant when NOT using the local bot-api server (i.e. talking to
 # api.telegram.org directly through the SOCKS proxy).
 TELEGRAM_USE_PROXY = _get_bool("TELEGRAM_USE_PROXY", False)

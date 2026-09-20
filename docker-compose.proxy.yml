@@ -1,0 +1,107 @@
+services:
+  # ---------------------------------------------------------------------------
+  # xray: dials out via VLESS+REALITY and exposes a local SOCKS5 proxy (:10808)
+  # on the internal docker network. Used by yt-dlp AND (via tun2socks) by the
+  # local Telegram Bot API server.
+  # ---------------------------------------------------------------------------
+  xray:
+    build: ./xray
+    container_name: dl_xray
+    restart: unless-stopped
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 10808 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dlnet
+
+  # ---------------------------------------------------------------------------
+  # tun2socks: creates a TUN device and forwards ALL traffic that enters its
+  # network namespace to the xray SOCKS5 proxy. The telegram-bot-api container
+  # shares this namespace, so its connection to Telegram is fully tunnelled
+  # through VLESS+REALITY (telegram-bot-api itself has no proxy option).
+  # ---------------------------------------------------------------------------
+  tun2socks:
+    image: ghcr.io/xjasonlyu/tun2socks:v2.5.2
+    container_name: dl_tun2socks
+    restart: unless-stopped
+    environment:
+      - LOGLEVEL=info
+      - PROXY=socks5://xray:10808
+      # Throughput tuning: bigger TCP buffers fill the bandwidth-delay product
+      # of the tunnel, which is what makes large uploads to Telegram fast.
+      - TCP_SNDBUF=4m
+      - TCP_RCVBUF=4m
+      - UDP_TIMEOUT=60s
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+    # Port published here belongs to the shared namespace used by telegram-bot-api.
+    expose:
+      - "8081"
+    depends_on:
+      xray:
+        condition: service_healthy
+    networks:
+      - dlnet
+
+  # ---------------------------------------------------------------------------
+  # telegram-bot-api: self-hosted Bot API server (TDLib). Runs in "local" mode
+  # (uploads up to ~2000 MB). Shares tun2socks' network namespace so all its
+  # traffic to Telegram goes through the VLESS tunnel.
+  # ---------------------------------------------------------------------------
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: dl_tg_api
+    restart: unless-stopped
+    # env_file injects TELEGRAM_API_ID / TELEGRAM_API_HASH straight from .env.
+    env_file: .env
+    environment:
+      - TELEGRAM_LOCAL=true
+      # Bind to all interfaces so the bot container can reach it via tun2socks.
+      - TELEGRAM_HTTP_IP_ADDRESS=0.0.0.0
+      - TELEGRAM_HTTP_PORT=8081
+    volumes:
+      - tg_api_data:/var/lib/telegram-bot-api
+    network_mode: "service:tun2socks"
+    depends_on:
+      tun2socks:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 8081 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # bot: the Telegram bot (pyTelegramBotAPI + yt-dlp + ffmpeg).
+  # Talks to the local Bot API server via tun2socks:8081, downloads via xray.
+  # ---------------------------------------------------------------------------
+  bot:
+    build: ./bot
+    container_name: dl_bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LOCAL_BOT_API_URL: http://tun2socks:8081
+    volumes:
+      - ./cookies:/cookies:ro
+    depends_on:
+      xray:
+        condition: service_healthy
+      telegram-bot-api:
+        condition: service_started
+    networks:
+      - dlnet
+
+volumes:
+  tg_api_data:
+
+networks:
+  dlnet:
+    driver: bridge

@@ -1,0 +1,6 @@
+.env
+cookies/*
+!cookies/.gitkeep
+__pycache__/
+*.pyc
+.venv/

@@ -15,7 +15,7 @@ and [yt-dlp](https://github.com/yt-dlp/yt-dlp). Ships as a `docker compose` stac
 
 ## Architecture
 
-Four containers on an internal docker network:
+Proxy mode uses four containers; direct mode uses only the bot and local API:
 
 ```
                  ┌──────────────────────────── downloads (yt-dlp) ───────────────────────────┐
@@ -34,7 +34,7 @@ Four containers on an internal docker network:
 - **tun2socks** — creates a TUN device and forwards everything in its network
   namespace to `socks5://xray:10808`.
 - **telegram-bot-api** — a self-hosted [Bot API server](https://github.com/tdlib/telegram-bot-api)
-  in *local* mode (uploads up to ~2000 MB). It runs with
+  in *local* mode (uploads up to ~2000 MB). In proxy mode it runs with
   `network_mode: service:tun2socks`, so **all its traffic to Telegram is
   tunnelled through VLESS+REALITY**. This is required because the Bot API server
   has no proxy option for its own connection to Telegram — only network-level
@@ -77,15 +77,15 @@ Four containers on an internal docker network:
 
 5. **Run:**
    ```bash
-   docker compose up -d --build
+   python compose.py up -d --build
    ```
 
 6. **Logs:**
    ```bash
-   docker compose logs -f bot
-   docker compose logs -f telegram-bot-api
-   docker compose logs -f tun2socks
-   docker compose logs -f xray
+   python compose.py logs -f bot
+   python compose.py logs -f telegram-bot-api
+   python compose.py logs -f tun2socks
+   python compose.py logs -f xray
    ```
 
 ---
@@ -105,15 +105,47 @@ Controlled by `USE_LOCAL_BOT_API` in `.env`:
 
 ## Disabling the proxy
 
-Set in `.env`:
+Set `PROXY_ENABLED=0` (or `false`) in `.env`, then run:
 
-```env
-PROXY_ENABLED=false
+```bash
+python compose.py up -d --build
 ```
 
-The bot then connects directly (no proxy for yt-dlp). Note: with
-`USE_LOCAL_BOT_API=true`, tun2socks still depends on xray for the Telegram
-tunnel, so only disable the proxy if you also switch to the cloud API.
+The launcher reads `.env` through Docker Compose and selects the matching
+configuration. Direct mode starts no xray or tun2socks containers and has no
+proxy health dependencies. The local Bot API connects directly to Telegram.
+`USE_LOCAL_BOT_API=false` also omits the local API server. Switching modes
+removes obsolete containers automatically, retaining the API data volume.
+Python 3.10+ and Docker Compose are required on the host.
+
+Use `python compose.py` in place of `docker compose` for subsequent commands.
+Plain `docker compose up` always uses the direct configuration; it does not
+select proxy mode. For hosts without Python, choose `docker-compose.yml` for
+direct mode or `docker-compose.proxy.yml` for proxy mode explicitly with `-f`.
+
+### Authentication and unavailable videos
+
+Place Netscape-format cookie exports in the host `cookies/` directory, which
+is mounted read-only. For example:
+
+```env
+YOUTUBE_COOKIES_FILE=/cookies/youtube.txt
+INSTAGRAM_COOKIES_FILE=/cookies/instagram.txt
+```
+
+`COOKIES_FILE` remains a shared fallback. Restart the bot after changing env
+settings. Each request copies its cookie file privately so concurrent requests
+do not modify your exports. Cookies are credentials; they are ignored by Git.
+
+The image includes Deno for YouTube JavaScript challenges and uses yt-dlp's
+maintained default clients. Login checks can still require fresh cookies or
+a different server IP. Deleted, private, or region-restricted videos cannot
+be made universally downloadable. The bot now returns short actionable
+messages instead of raw extractor instructions.
+
+MP3 files include title metadata and embedded cover art when a thumbnail is
+available, plus a Telegram audio preview. A failed cover conversion does not
+prevent delivery of the audio.
 
 ---
 
@@ -127,7 +159,7 @@ server. Levers, in order of impact:
 2. **VLESS server location & bandwidth** — the dominant factor. A closer,
    less-loaded server is faster. All creds live in `.env`
    (`VLESS_ADDRESS`, `VLESS_PORT`, `VLESS_UUID`, `VLESS_SNI`,
-   `VLESS_PUBLIC_KEY`, `VLESS_SHORT_ID`) — swap them and `docker compose up -d`
+   `VLESS_PUBLIC_KEY`, `VLESS_SHORT_ID`) — swap them and `python compose.py up -d`
    to point at a different/faster server. No rebuild needed for xray.
 3. **`VLESS_FLOW=xtls-rprx-vision`** (default) — keep this. XTLS-Vision avoids
    double TLS encryption and is markedly faster than an empty flow.
@@ -188,16 +220,14 @@ quality buttons), so a stranger can't trigger a download via a stale button.
   and the Dockerfile force-upgrades it to the newest release on each build, so if
   downloads start failing, just rebuild to pull the latest fix:
   ```bash
-  docker compose build --no-cache bot && docker compose up -d bot
+  python compose.py build --no-cache bot && python compose.py up -d bot
   ```
   (or bump `YTDLP_REFRESH` in `bot/Dockerfile` to bust the cache).
-- YouTube 403s are also mitigated in code by pulling formats from multiple
-  player clients (TV / Safari / mobile-web) and retrying with the HLS-serving
-  clients on a 403 — see `bot/downloader.py`.
-- Instagram may require login for some content; public Reels generally work.
-  To use cookies, export a `cookies.txt` (Netscape format) from a logged-in
-  browser, mount it into the bot container, and set `COOKIES_FILE=/app/cookies.txt`
-  in `.env`. This also helps with age-gated videos and stubborn YouTube checks.
+- YouTube uses yt-dlp's default player clients and retries media 403s once
+  with Safari. The Docker image includes the JavaScript runtime required by
+  current yt-dlp. See [yt-dlp EJS setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+- For Instagram login walls and YouTube account checks, configure cookie
+  exports as described above. See [yt-dlp cookie guidance](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp).
 - Respect each platform's Terms of Service and copyright. Download only content
   you have the right to.
 
